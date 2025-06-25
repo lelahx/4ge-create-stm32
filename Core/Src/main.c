@@ -66,7 +66,7 @@ typedef struct {
 #define MAX_CURRENT 5000 // mA
 #define MAX_POWER ((MAX_VOLTAGE*MAX_CURRENT)/1000) // mW
 
-#define TIMER_PERIOD 65500 // us
+#define TIMER_PERIOD 125000 // us
 
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 32
@@ -736,9 +736,9 @@ static void MX_TIM6_Init(void)
 
   /* USER CODE END TIM6_Init 1 */
   htim6.Instance = TIM6;
-  htim6.Init.Prescaler = 2096;
+  htim6.Init.Prescaler = 39999;
   htim6.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim6.Init.Period = 999;
+  htim6.Init.Period = 99;
   htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim6) != HAL_OK)
   {
