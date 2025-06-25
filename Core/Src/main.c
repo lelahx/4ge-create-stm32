@@ -344,10 +344,14 @@ void CREATE_ScreenFrame(void) {
 	FLASH_WaitForLastOperation(FLASH_TIMEOUT_VALUE);
 
 	// Take measurements, used to display INST page
-	instant.voltage = (Get_ADC_Value(ADC_CHANNEL_4) * MAX_VOLTAGE)/2600; // mV
+	// instant.voltage = (Get_ADC_Value(ADC_CHANNEL_4) * MAX_VOLTAGE)/2600; // mV
 	// instant.current = ((int16_t)(Get_ADC_Value(ADC_CHANNEL_3) - 2078) * MAX_CURRENT)/2017; // mA
 	// instant.voltage = Get_ADC_Value(ADC_CHANNEL_4); // mV
-	instant.current = Get_ADC_Value(ADC_CHANNEL_3); // mA
+	// instant.voltage = (Get_ADC_Value(ADC_CHANNEL_4) * 75)/10; // mV
+	instant.voltage = ((int16_t)(Get_ADC_Value(ADC_CHANNEL_4) - 110) * 8); // mV
+	instant.current = ((int16_t)(Get_ADC_Value(ADC_CHANNEL_3) - 2152) * 41)/10; // mA
+	// instant.current = Get_ADC_Value(ADC_CHANNEL_3); // mA
+	// instant.current = Get_ADC_Value(ADC_CHANNEL_3); // mA
 	instant.power = (int32_t)(instant.voltage * instant.current)/1000; // mW
 
 	// Calculate energy, for CALC page
