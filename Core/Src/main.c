@@ -31,6 +31,9 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
+
+// The chip doesn't implement native floating-point operations, hence no floats are used in this project's data types
+
 typedef enum : uint8_t {
     INST, CALC, PEAK, GRAPH, MEM, STAT1, STAT2, COMM, DUMP, INFO,
 
@@ -41,10 +44,10 @@ typedef struct {
 	uint16_t voltage;
 	int16_t current;
 	int32_t power;
-} Survey;
+} Measurement;
 
 typedef struct {
-	Survey peak;
+	Measurement peak;
 	uint32_t duration;
 	int32_t energy;
 	int32_t average_power;
@@ -94,6 +97,7 @@ static uint8_t button_state;
 
 static uint8_t button_down;
 
+// This needs to be volatile because it points to a non-volatile memory location
 volatile struct {
 
 	struct {
@@ -109,7 +113,7 @@ volatile struct {
 
 uint32_t timestamp = 0;
 
-Survey instant = {0};
+Measurement instant = {0};
 
 SessionData ram_session = {0};
 
@@ -153,6 +157,7 @@ void CREATE_InstMenu(ScreenText* text_buffers) {
 // Draws CALC menu
 void CREATE_CalcMenu(ScreenText* text_buffers) {
 
+	// Reset session on button press
 	if (button_state) {
 		timestamp = 0;
 		ram_session.energy = 0;
@@ -173,7 +178,7 @@ void CREATE_CalcMenu(ScreenText* text_buffers) {
 // Draws PEAK menu
 void CREATE_PeakMenu(ScreenText* text_buffers) {
 
-	if (button_state) ram_session.peak = (Survey){0}; // Reset peak values
+	if (button_state) ram_session.peak = (Measurement){0}; // Reset peak values
 
 	sprintf(text_buffers->line1, "PEAK VALS");
 	sprintf(text_buffers->line2, "%05u mV  %5d mA", ram_session.peak.voltage, ram_session.peak.current);
@@ -209,7 +214,7 @@ void CREATE_MemMenu(ScreenText* text_buffers) {
 
 	sprintf(text_buffers->line1, "MEMORY");
 	sprintf(text_buffers->line2, "Push to save!");
-	sprintf(text_buffers->line3, "                   ");
+	sprintf(text_buffers->line3, "                   "); // To draw over SAVED message
 	ssd1306_SetCursor(0, 0);
 	ssd1306_WriteString(text_buffers->line1, Font_7x10, White);
 	ssd1306_SetCursor(0, 11);
@@ -220,11 +225,12 @@ void CREATE_MemMenu(ScreenText* text_buffers) {
 	ssd1306_UpdateScreen();
 
 
-	if (!button_down) return;
+	if (!button_down) return; // Early return if button not pressed
 
 	persistent_data->last_session = ram_session;
 	FLASH_WaitForLastOperation(FLASH_TIMEOUT_VALUE);
 
+	// Indicate that the write is finished
 	sprintf(text_buffers->line3, "       SAVED       ");
 	ssd1306_SetCursor(0, 22);
 	ssd1306_WriteString(text_buffers->line3, Font_7x10, White);
@@ -270,6 +276,7 @@ void CREATE_CommMenu(ScreenText* text_buffers) {
 	ssd1306_SetCursor(0, 11);
 	ssd1306_WriteString(text_buffers->line2, Font_7x10, White);
 
+	// Runs every timer cycle, continuous feeding intended for remote machine consumption
 	if (persistent_data->rt_comm) {
 
 		char msg[130];
@@ -281,9 +288,10 @@ void CREATE_CommMenu(ScreenText* text_buffers) {
 		                   ram_session.energy, ram_session.average_power,
 		                   ram_session.peak.voltage, ram_session.peak.current, ram_session.peak.power);
 
-		HAL_UART_Transmit(&huart1, (uint8_t*)msg, size, 10);
+		HAL_UART_Transmit(&huart1, (uint8_t*)msg, size, 10); // Transmit with 10ms timeout < TIMER_PERIOD budget
 	}
 
+	// Toggle real-time serial communication
 	if (button_down) persistent_data->rt_comm = !persistent_data->rt_comm;
 }
 
@@ -304,6 +312,7 @@ void CREATE_DumpMenu(ScreenText* text_buffers) {
 
 
 	if (!button_down) return;
+	// One-time serial communication
 
 	char msg[130];
 	int size = sprintf(msg,
@@ -316,6 +325,7 @@ void CREATE_DumpMenu(ScreenText* text_buffers) {
 
 	HAL_UART_Transmit(&huart1, (uint8_t*)msg, size, 10);
 
+	// Reset saved session
 	persistent_data->last_session = (SessionData){0};
 
 	sprintf(text_buffers->line3, "      DUMPED       ");
@@ -325,6 +335,8 @@ void CREATE_DumpMenu(ScreenText* text_buffers) {
 
 // Draws INFO menu
 void CREATE_InfoMenu(ScreenText* text_buffers) {
+
+	// Additional information, mainly useful for debugging but I thought it best to keep it
 
 	sprintf(text_buffers->line1, "INFORMATION");
 	sprintf(text_buffers->line2, "TS= %14lu", timestamp);
@@ -337,27 +349,23 @@ void CREATE_InfoMenu(ScreenText* text_buffers) {
 	ssd1306_WriteString(text_buffers->line3, Font_7x10, White);
 }
 
+// Dispatches the screen menu draws and also fetches and calculates the necessary information.
+// This is where most of the work happens.
 void CREATE_ScreenFrame(void) {
 
+	// Unlock EEPROM region for subsequent writes
 	HAL_FLASHEx_DATAEEPROM_Unlock();
-	// __HAL_LOCK(&pFlash);
-	FLASH_WaitForLastOperation(FLASH_TIMEOUT_VALUE);
+	FLASH_WaitForLastOperation(FLASH_TIMEOUT_VALUE); // Wait for any unfinished operation (shouldn't be much)
 
 	// Take measurements, used to display INST page
-	// instant.voltage = (Get_ADC_Value(ADC_CHANNEL_4) * MAX_VOLTAGE)/2600; // mV
-	// instant.current = ((int16_t)(Get_ADC_Value(ADC_CHANNEL_3) - 2078) * MAX_CURRENT)/2017; // mA
-	// instant.voltage = Get_ADC_Value(ADC_CHANNEL_4); // mV
-	// instant.voltage = (Get_ADC_Value(ADC_CHANNEL_4) * 75)/10; // mV
 	instant.voltage = ((int16_t)(Get_ADC_Value(ADC_CHANNEL_4) - 110) * 8); // mV
 	instant.current = ((int16_t)(Get_ADC_Value(ADC_CHANNEL_3) - 2152) * 41)/10; // mA
-	// instant.current = Get_ADC_Value(ADC_CHANNEL_3); // mA
-	// instant.current = Get_ADC_Value(ADC_CHANNEL_3); // mA
 	instant.power = (int32_t)(instant.voltage * instant.current)/1000; // mW
 
 	// Calculate energy, for CALC page
 	ram_session.energy += ((int64_t)instant.power * TIMER_PERIOD)/3600000; // uWh
 	ram_session.average_power = (((int64_t)ram_session.energy * 3600000)/(timestamp * TIMER_PERIOD)); // mW
-	ram_session.duration = (timestamp * TIMER_PERIOD) / 1000000;
+	ram_session.duration = (timestamp * TIMER_PERIOD) / 1000000; // s
 
 	// Determine peaks, for PEAK page
 	if (instant.voltage > ram_session.peak.voltage) ram_session.peak.voltage = instant.voltage;
@@ -394,24 +402,23 @@ void CREATE_ScreenFrame(void) {
 	// Actually apply screen changes
 	ssd1306_UpdateScreen();
 
-	FLASH_WaitForLastOperation(FLASH_TIMEOUT_VALUE);
-	// __HAL_UNLOCK(&pFlash);
-	HAL_FLASHEx_DATAEEPROM_Lock();
+	FLASH_WaitForLastOperation(FLASH_TIMEOUT_VALUE); // Wait for unfinished ops done in the function
+	HAL_FLASHEx_DATAEEPROM_Lock(); // Lock the EEPROM again, prevent writes
 }
 
 
 /**
   * @brief  Interrupt handler for TIM6 timer
   * @note	This function is called when the timer is reloaded
-  *         It reads ADC values from potentiometer inputs and update screen infos
+  *         It reads ADC values from volateg and current inputs and updates screen information
   */
 void Timer_Interrupt_Handler(void) {
 
-	++timestamp;
+	++timestamp; // Ever-increasing time counter
 
 	CREATE_ScreenFrame();
 
-	button_down = false;
+	button_down = false; // Reset edge variable so that it can be true only during a frame
 }
 
 /**
@@ -422,6 +429,7 @@ void User_Button_Interrupt_Handler(void) {
 
 	button_state = HAL_GPIO_ReadPin(USER_BUTTON_GPIO_Port, USER_BUTTON_Pin);
 
+	// Use a second variable to detect button edge
 	button_down = button_state; // Needs to be reset regularly elsewhere
 }
 
@@ -448,6 +456,7 @@ void Rotary_Encoder_Interrupt_Handler(void) {
 
 		rotary_state = rotary_new;
 
+		// Menu selection is stored in non-volatile memory hence needs to unlock EEPROM
 		HAL_FLASHEx_DATAEEPROM_Unlock();
 		FLASH_WaitForLastOperation(FLASH_TIMEOUT_VALUE);
 		if (rotary_buffer > 3) {
@@ -467,7 +476,7 @@ void Rotary_Encoder_Interrupt_Handler(void) {
 		}
 
 		FLASH_WaitForLastOperation(FLASH_TIMEOUT_VALUE);
-		// EEPROM Lock is not reentrant hence we can't re-lock it here, because this will cause problems in the ScreenFrame routine
+		// EEPROM Lock is not reentrant hence we can't re-lock it here, because it potentially will prevent accesses in ScreenFrame routine
 	}
 }
 
